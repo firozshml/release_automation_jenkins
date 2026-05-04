@@ -1,0 +1,108 @@
+pipeline {
+    agent { label 'Small' }
+
+    environment {
+        REMOTE_HOST = '10.86.180.76'
+        BASE_REMOTE_DIR = "/apps/ingenium/${params.REGION}/server/dbparms/jenkins"
+    }
+
+     parameters {
+        string(name: 'REGION', defaultValue: 'th', description: 'Region code (e.g., th, us, eu)')
+        string(name: 'DB_NAME', defaultValue: 'ingmth', description: 'Database name')
+        string(name: 'DB_SCHEMA', defaultValue: 'ingmths', description: 'Database schema')
+        string(name: 'RELEASE_DATE', defaultValue: '2026-05-04', description: 'Release date (YYYY-MM-DD format)')
+        //choice(name: 'ENVIRONMENT', choices: ['DEV', 'QA', 'PROD'], description: 'Deployment environment')
+    }
+
+    stages {
+
+        stage('Node Info') {
+            steps {
+                echo "Node      : ${env.NODE_NAME}"
+                echo "Workspace : ${env.WORKSPACE}"
+            }
+        }
+
+        stage('Validate Parameters') {
+            steps {
+                echo "════════════════════════════════════════"
+                echo "📋 Pipeline Parameters:"
+                echo "  REGION      : ${params.REGION}"
+                echo "  DB_NAME     : ${params.DB_NAME}"
+                echo "  DB_SCHEMA   : ${params.DB_SCHEMA}"
+                echo "  RELEASE_DATE: ${params.RELEASE_DATE}"
+                //echo "  ENVIRONMENT : ${params.ENVIRONMENT}"
+                echo "════════════════════════════════════════"
+            }
+        }
+
+        stage('Checkout GitHub Repo') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Copy SQL & Release File to Server') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'db-cred-ingmths',
+                        usernameVariable: 'SSH_USER',
+                        passwordVariable: 'SSH_PASS'
+                    )
+                ]) {
+                    sh """
+                        sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
+                        ${SSH_USER}@${REMOTE_HOST} "mkdir -p ${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}"
+
+                        sshpass -p "${SSH_PASS}" scp -r \
+                        sqls/ddl/${RELEASE_DATE}/* \
+                        ${SSH_USER}@${REMOTE_HOST}:${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}/
+
+                        sshpass -p "${SSH_PASS}" scp \
+                        release_files/table/${RELEASE_DATE}/release_plan.txt \
+                        ${SSH_USER}@${REMOTE_HOST}:/${BASE_REMOTE_DIR}/release_files/table/${RELEASE_DATE}/release_plan.txt
+                    """
+                }
+            }
+        }
+
+        stage('Run Table Changes') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'db-cred-ingmths',
+                        usernameVariable: 'SSH_USER',
+                        passwordVariable: 'SSH_PASS'
+                    )
+                ]) {
+                    sh """
+                        sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
+                        ${SSH_USER}@${REMOTE_HOST} << 'EOF'
+                        export REGION=${REGION}
+                        export DB_NAME=${DB_NAME}
+                        export DB_SCHEMA=${DB_SCHEMA}
+                        export RELEASE_DATE=${RELEASE_DATE}
+                        export RELEASE_PLAN_FILE=/${BASE_REMOTE_DIR}/release_files/table/${RELEASE_DATE}/release_plan.txt
+
+                        cd ${BASE_REMOTE_DIR}/scripts
+                        . ./run_table_changes.ksh
+                        EOF
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '**/logs/**', allowEmptyArchive: true
+        }
+        success {
+            echo '✅ Table changes completed successfully'
+        }
+        failure {
+            echo '❌ Table changes failed'
+        }
+    }
+}
