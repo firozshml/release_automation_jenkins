@@ -38,7 +38,11 @@ pipeline {
 
         stage('Checkout GitHub Repo') {
             steps {
-                checkout scm
+                 git(
+                    url: 'https://github.com/firozshml/release_automation_jenkins.git',
+                    branch: 'main',
+                    credentialsId: 'github-jenkins-firozsh'
+                    )
             }
         }
 
