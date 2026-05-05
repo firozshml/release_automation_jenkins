@@ -60,7 +60,7 @@ pipeline {
                         ${SSH_USER}@${REMOTE_HOST} "mkdir -p ${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}"
 
                         sshpass -p "${SSH_PASS}" scp -r \
-                        sqls/ddl/${RELEASE_DATE}/* \
+                        sql/ddl/${RELEASE_DATE}/* \
                         ${SSH_USER}@${REMOTE_HOST}:${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}/
 
                         sshpass -p "${SSH_PASS}" scp \
@@ -83,10 +83,10 @@ pipeline {
                     sh """
                         sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
                         ${SSH_USER}@${REMOTE_HOST} << 'EOF'
-                        export REGION=${REGION}
-                        export DB_NAME=${DB_NAME}
-                        export DB_SCHEMA=${DB_SCHEMA}
-                        export RELEASE_DATE=${RELEASE_DATE}
+                        export REGION=${params.REGION}
+                        export DB_NAME=${params.DB_NAME}
+                        export DB_SCHEMA=${params.DB_SCHEMA}
+                        export RELEASE_DATE=${params.RELEASE_DATE}
                         export RELEASE_PLAN_FILE=/${BASE_REMOTE_DIR}/release_files/table/${RELEASE_DATE}/release_plan.txt
 
                         cd ${BASE_REMOTE_DIR}/scripts
