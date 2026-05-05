@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'Small' }
+    agent { label 'Medium' }
 
     environment {
         REMOTE_HOST = '10.86.180.76'
@@ -31,6 +31,7 @@ pipeline {
                 echo "  DB_NAME     : ${params.DB_NAME}"
                 echo "  DB_SCHEMA   : ${params.DB_SCHEMA}"
                 echo "  RELEASE_DATE: ${params.RELEASE_DATE}"
+		echo "  BASE DIR    : ${BASE_REMOTE_DIR}"
                 //echo "  ENVIRONMENT : ${params.ENVIRONMENT}"
                 echo "════════════════════════════════════════"
             }
@@ -46,7 +47,79 @@ pipeline {
             }
         }
 
-        stage('Copy SQL & Release File to Server') {
+        stage('Validate Local Release Files') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "🔍 Validating local release files"
+
+                    if [ ! -d "sql/ddl/$RELEASE_DATE" ]; then
+                        echo "❌ SQL directory not found: sql/ddl/$RELEASE_DATE"
+                        exit 1
+                    fi
+
+                    if ! ls sql/ddl/$RELEASE_DATE/*.sql >/dev/null 2>&1; then
+                        echo "❌ No SQL files found under: sql/ddl/$RELEASE_DATE"
+                        exit 1
+                    fi
+
+                    if [ ! -f "release_files/table/$RELEASE_DATE/release_plan.txt" ]; then
+                        echo "❌ Release plan not found: release_files/table/$RELEASE_DATE/release_plan.txt"
+                        exit 1
+                    fi
+
+                    echo "✅ Local release files validated"
+
+                    echo "SQL files:"
+                    ls -l sql/ddl/$RELEASE_DATE/
+
+                    echo "Release plan:"
+                    ls -l release_files/table/$RELEASE_DATE/release_plan.txt
+                '''
+            }
+        }
+
+        stage('Copy SQL & Release Files') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'db-cred-ingmths',
+                        usernameVariable: 'SSH_USER',
+                        passwordVariable: 'SSH_PASS'
+                    )
+                ]){
+                    sh '''
+                        set -e
+
+                        echo "📁 Creating remote directories"
+
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                          "$SSH_USER@$REMOTE_HOST" \
+                          "mkdir -p \
+                            $BASE_REMOTE_DIR/sql/ddl/$RELEASE_DATE \
+                            $BASE_REMOTE_DIR/release_files/table/$RELEASE_DATE \
+                            $BASE_REMOTE_DIR/logs/$RELEASE_DATE/ddl"
+
+                        echo "📤 Copying SQL files"
+
+                        sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no -r \
+                          sql/ddl/$RELEASE_DATE/* \
+                          "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/sql/ddl/$RELEASE_DATE/"
+
+                        echo "📤 Copying release plan"
+
+                        sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no \
+                          release_files/table/$RELEASE_DATE/release_plan.txt \
+                          "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/release_files/table/$RELEASE_DATE/release_plan.txt"
+
+                        echo "✅ File transfer completed"
+                    '''
+                }
+            }
+        }
+	
+	stage('Verify Remote Files') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -55,22 +128,25 @@ pipeline {
                         passwordVariable: 'SSH_PASS'
                     )
                 ]) {
-                    sh """
-                        sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-                        ${SSH_USER}@${REMOTE_HOST} "mkdir -p ${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}"
+                    sh '''
+                        set -e
 
-                        sshpass -p "${SSH_PASS}" scp -r \
-                        sql/ddl/${RELEASE_DATE}/* \
-                        ${SSH_USER}@${REMOTE_HOST}:${BASE_REMOTE_DIR}/sql/ddl/${RELEASE_DATE}/
+                        echo "🔍 Verifying files on remote server"
 
-                        sshpass -p "${SSH_PASS}" scp \
-                        release_files/table/${RELEASE_DATE}/release_plan.txt \
-                        ${SSH_USER}@${REMOTE_HOST}:/${BASE_REMOTE_DIR}/release_files/table/${RELEASE_DATE}/release_plan.txt
-                    """
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                          "$SSH_USER@$REMOTE_HOST" \
+                          "echo 'Remote SQL directory:' && \
+                           ls -l $BASE_REMOTE_DIR/sql/ddl/$RELEASE_DATE && \
+                           echo 'Remote release plan:' && \
+                           ls -l $BASE_REMOTE_DIR/release_files/table/$RELEASE_DATE/release_plan.txt && \
+                           echo 'Remote script:' && \
+                           ls -l $BASE_REMOTE_DIR/scripts/run_table_changes.ksh"
+
+                        echo "✅ Remote file verification completed"
+                    '''
                 }
             }
         }
-
         stage('Run Table Changes') {
             steps {
                 withCredentials([
@@ -80,19 +156,23 @@ pipeline {
                         passwordVariable: 'SSH_PASS'
                     )
                 ]) {
-                    sh """
-                        sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-                        ${SSH_USER}@${REMOTE_HOST} << 'EOF'
-                        export REGION=${params.REGION}
-                        export DB_NAME=${params.DB_NAME}
-                        export DB_SCHEMA=${params.DB_SCHEMA}
-                        export RELEASE_DATE=${params.RELEASE_DATE}
-                        export RELEASE_PLAN_FILE=/${BASE_REMOTE_DIR}/release_files/table/${RELEASE_DATE}/release_plan.txt
-
-                        cd ${BASE_REMOTE_DIR}/scripts
-                        . ./run_table_changes.ksh
-                        EOF
-                    """
+                    sh '''
+                        set -e
+                        
+                        echo "🚀 Running table changes through remote SSH"
+                        
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                        "$SSH_USER@$REMOTE_HOST" \
+                        "cd /apps/ingenium/th/server/dbparms/jenkins/scripts && \
+                        export REGION=th && \
+                        export DB_NAME=ingmth && \
+                        export DB_SCHEMA=ingmths && \
+                        export RELEASE_DATE=2026-05-04 && \
+                        export RELEASE_PLAN_FILE=/apps/ingenium/th/server/dbparms/jenkins/release_files/table/2026-05-04/release_plan.txt && \
+                        ksh ./run_table_changes.ksh"
+                        
+                        echo "✅ Table changes completed on remote server"
+                    '''
                 }
             }
         }
@@ -100,6 +180,7 @@ pipeline {
 
     post {
         always {
+            echo '📦 Archiving local Jenkins artifacts if available'
             archiveArtifacts artifacts: '**/logs/**', allowEmptyArchive: true
         }
         success {
