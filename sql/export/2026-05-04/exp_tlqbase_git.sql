@@ -1,1 +1,1 @@
-export to /apps/ingenium/th/server/dbparms/data/Jenkins/TLQBASE_100K.DEL OF DEL MODIFIED BY chardel"" coldel, decpt. datesiso decplusblank MESSAGES /apps/ingenium/th/server/dbparms/log/Jenkins/TLQBASE_100K.log SELECT * FROM TLQBASE FETCH FIRST 100000 ROWS ONLY WITH UR
+export to /apps/ingenium/th/server/dbparms/data/Jenkins/TLQBASE_100K.del OF DEL MODIFIED BY chardel"" coldel, decpt. datesiso decplusblank MESSAGES /apps/ingenium/th/server/dbparms/log/Jenkins/TLQBASE_100K.log SELECT * FROM TLQBASE FETCH FIRST 100000 ROWS ONLY WITH UR;
