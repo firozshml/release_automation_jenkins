@@ -1,0 +1,1 @@
+import from /apps/ingenium/th/server/dbparms/data/Jenkins/TLQBASE_100K.del OF DEL MODIFIED BY chardel"" coldel, decpt. datesiso decplusblank MESSAGES /apps/ingenium/th/server/dbparms/log/Jenkins/TLQBASE_INSERT_100K.log INSERT INTO TLQBASE;
