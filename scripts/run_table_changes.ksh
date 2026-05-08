@@ -89,7 +89,8 @@ while read LINE || [ -n "${LINE}" ]; do
   log "Validating table state for ${table_name}..."
   
   TABLE_STATE_OUTPUT=$(db2 "load query table ${table_name}" 2>&1)
-  TABLE_STATE=$(print "${TABLE_STATE_OUTPUT}" | grep -i "tablestate:" | awk '{print $NF}')
+  # Parse output: "Tablestate:" is on one line, actual state on next line (indented)
+  TABLE_STATE=$(print "${TABLE_STATE_OUTPUT}" | awk '/[Tt]ablestate:/{getline; print}' | awk '{print $1}')
   
   if [ -z "${TABLE_STATE}" ]; then
     fail "Unable to determine table state for ${table_name}. Query output: ${TABLE_STATE_OUTPUT}"
