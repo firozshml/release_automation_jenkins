@@ -7,7 +7,7 @@ pipeline {
     }
 
      parameters {
-        string(name: 'REGION', defaultValue: 'th', description: 'Region code (e.g., th, us, eu)')
+        string(name: 'REGION', defaultValue: 'th', description: 'Region code (e.g.,  t1, th, u1)')
         string(name: 'DB_NAME', defaultValue: 'ingmth', description: 'Database name')
         string(name: 'DB_SCHEMA', defaultValue: 'ingmths', description: 'Database schema')
         string(name: 'RELEASE_DATE', defaultValue: '2026-05-04', description: 'Release date (YYYY-MM-DD format)')
@@ -81,6 +81,13 @@ pipeline {
         }
 
         stage('Copy SQL & Release Files') {
+            agent {
+                docker {
+                    image 'alpine:3.19'
+                    args '-u root:root'
+                    reuseNode true
+                }
+            }
             steps {
                 withCredentials([
                     usernamePassword(
@@ -90,10 +97,9 @@ pipeline {
                     )
                 ]){
                     sh '''
-                        set -e
-
-                        echo "📁 Creating remote directories"
-
+                      set -e
+                      apk add --no-cache openssh sshpass
+		      echo "📁 Creating remote directories"
                         sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
                           "$SSH_USER@$REMOTE_HOST" \
                           "mkdir -p \
@@ -163,12 +169,12 @@ pipeline {
                         
                         sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
                         "$SSH_USER@$REMOTE_HOST" \
-                        "cd /apps/ingenium/th/server/dbparms/jenkins/scripts && \
-                        export REGION=th && \
-                        export DB_NAME=ingmth && \
-                        export DB_SCHEMA=ingmths && \
-                        export RELEASE_DATE=2026-05-04 && \
-                        export RELEASE_PLAN_FILE=/apps/ingenium/th/server/dbparms/jenkins/release_files/table/2026-05-04/release_plan.txt && \
+                         "cd $BASE_REMOTE_DIR/scripts && \
+                         export REGION=${REGION} && \
+                         export DB_NAME=${DB_NAME} && \
+                         export DB_SCHEMA=${DB_SCHEMA} && \
+                         export RELEASE_DATE=${RELEASE_DATE} && \
+                         export RELEASE_PLAN_FILE=$BASE_REMOTE_DIR/release_files/table/$RELEASE_DATE/release_plan.txt && \
                         ksh ./run_table_changes.ksh"
                         
                         echo "✅ Table changes completed on remote server"

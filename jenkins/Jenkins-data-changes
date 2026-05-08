@@ -2,15 +2,15 @@ pipeline {
     agent { label 'Medium' }
 
     environment {
-        REMOTE_HOST     = '10.86.180.76'
+        REMOTE_HOST = '10.86.180.76'
         BASE_REMOTE_DIR = "/apps/ingenium/${params.REGION}/server/dbparms/jenkins"
     }
 
     parameters {
-        string(name: 'REGION', defaultValue: 'th')
-        string(name: 'DB_NAME', defaultValue: 'ingmth')
-        string(name: 'DB_SCHEMA', defaultValue: 'ingmths')
-        string(name: 'RELEASE_DATE', defaultValue: '2026-05-04')
+        string(name: 'REGION', defaultValue: 'th', description: 'Region code (e.g., th, us, eu)')
+        string(name: 'DB_NAME', defaultValue: 'ingmth', description: 'Database name')
+        string(name: 'DB_SCHEMA', defaultValue: 'ingmths', description: 'Database schema')
+        string(name: 'RELEASE_DATE', defaultValue: '2026-05-04', description: 'Release date (YYYY-MM-DD)')
     }
 
     stages {
@@ -19,6 +19,19 @@ pipeline {
             steps {
                 echo "Node      : ${env.NODE_NAME}"
                 echo "Workspace : ${env.WORKSPACE}"
+            }
+        }
+
+        stage('Validate Parameters') {
+            steps {
+                echo "════════════════════════════════════════"
+                echo "📋 Pipeline Parameters:"
+                echo "  REGION       : ${params.REGION}"
+                echo "  DB_NAME      : ${params.DB_NAME}"
+                echo "  DB_SCHEMA    : ${params.DB_SCHEMA}"
+                echo "  RELEASE_DATE : ${params.RELEASE_DATE}"
+                echo "  BASE DIR     : ${BASE_REMOTE_DIR}"
+                echo "════════════════════════════════════════"
             }
         }
 
@@ -35,17 +48,28 @@ pipeline {
         stage('Validate Local Release Files') {
             steps {
                 sh '''
-                  set -e
-                  echo "🔍 Validating local files"
+                    set -e
 
-                  for dir in import export zap; do
-                    if [ -d "sql/$dir/$RELEASE_DATE" ]; then
-                      ls sql/$dir/$RELEASE_DATE/*.sql >/dev/null
+                    echo "🔍 Validating local DATA release files"
+
+                    for dir in import export zap; do
+                        if [ -d "sql/$dir/$RELEASE_DATE" ]; then
+                            if ! ls sql/$dir/$RELEASE_DATE/*.sql >/dev/null 2>&1; then
+                                echo "❌ No SQL files found under sql/$dir/$RELEASE_DATE"
+                                exit 1
+                            fi
+                        fi
+                    done
+
+                    if [ ! -f "release_files/data/$RELEASE_DATE/release_plan.txt" ]; then
+                        echo "❌ Release plan not found: release_files/data/$RELEASE_DATE/release_plan.txt"
+                        exit 1
                     fi
-                  done
 
-                  [ -f "release_files/data/$RELEASE_DATE/release_plan.txt" ]
-                  echo "✅ Local files validated"
+                    echo "✅ Local data release files validated"
+
+                    echo "Release plan:"
+                    ls -l release_files/data/$RELEASE_DATE/release_plan.txt
                 '''
             }
         }
@@ -69,27 +93,94 @@ pipeline {
                     sh '''
                       set -e
                       apk add --no-cache openssh sshpass
-
-                      sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
-                        "$SSH_USER@$REMOTE_HOST" "
-                          mkdir -p \
+		      echo "📁 Creating remote directories"
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                          "$SSH_USER@$REMOTE_HOST" \
+                          "mkdir -p \
                             $BASE_REMOTE_DIR/sql/import/$RELEASE_DATE \
                             $BASE_REMOTE_DIR/sql/export/$RELEASE_DATE \
                             $BASE_REMOTE_DIR/sql/zap/$RELEASE_DATE \
                             $BASE_REMOTE_DIR/release_files/data/$RELEASE_DATE \
-                            $BASE_REMOTE_DIR/logs/$RELEASE_DATE
-                        "
+                            $BASE_REMOTE_DIR/logs/$RELEASE_DATE"
 
-                      for dir in import export zap; do
-                        [ -d "sql/$dir/$RELEASE_DATE" ] && \
-                        sshpass -p "$SSH_PASS" scp -r -o StrictHostKeyChecking=no \
-                          sql/$dir/$RELEASE_DATE/* \
-                          "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/sql/$dir/$RELEASE_DATE/"
-                      done
+                        echo "📤 Copying SQL files"
 
-                      sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no \
-                        release_files/data/$RELEASE_DATE/release_plan.txt \
-                        "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/release_files/data/$RELEASE_DATE/"
+                        for dir in import export zap; do
+                            if [ -d "sql/$dir/$RELEASE_DATE" ]; then
+                                sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no -r \
+                                  sql/$dir/$RELEASE_DATE/* \
+                                  "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/sql/$dir/$RELEASE_DATE/"
+                            fi
+                        done
+
+                        echo "📤 Copying release plan"
+
+                        sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no \
+                          release_files/data/$RELEASE_DATE/release_plan.txt \
+                          "$SSH_USER@$REMOTE_HOST:$BASE_REMOTE_DIR/release_files/data/$RELEASE_DATE/release_plan.txt"
+
+                        echo "✅ File transfer completed"
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Remote Files') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'db-cred-ingmths',
+                        usernameVariable: 'SSH_USER',
+                        passwordVariable: 'SSH_PASS'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        echo "🔍 Verifying remote files"
+
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                          "$SSH_USER@$REMOTE_HOST" \
+                          "echo 'Remote data SQL folders:' && \
+                           ls -l $BASE_REMOTE_DIR/sql/import/$RELEASE_DATE 2>/dev/null || true && \
+                           ls -l $BASE_REMOTE_DIR/sql/export/$RELEASE_DATE 2>/dev/null || true && \
+                           ls -l $BASE_REMOTE_DIR/sql/zap/$RELEASE_DATE 2>/dev/null || true && \
+                           echo 'Remote release plan:' && \
+                           ls -l $BASE_REMOTE_DIR/release_files/data/$RELEASE_DATE/release_plan.txt && \
+                           echo 'Remote script:' && \
+                           ls -l $BASE_REMOTE_DIR/scripts/run_data_changes.ksh"
+
+                        echo "✅ Remote verification completed"
+                    '''
+                }
+            }
+        }
+
+        stage('Run Data Changes') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'db-cred-ingmths',
+                        usernameVariable: 'SSH_USER',
+                        passwordVariable: 'SSH_PASS'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        echo "🚀 Running data changes on remote server"
+
+                        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                        "$SSH_USER@$REMOTE_HOST" \
+                        "cd $BASE_REMOTE_DIR/scripts && \
+                         export REGION=${REGION} && \
+                         export DB_NAME=${DB_NAME} && \
+                         export DB_SCHEMA=${DB_SCHEMA} && \
+                         export RELEASE_DATE=${RELEASE_DATE} && \
+                         export RELEASE_PLAN_FILE=$BASE_REMOTE_DIR/release_files/data/$RELEASE_DATE/release_plan.txt && \
+                         ksh ./run_data_changes.ksh"
+
+                        echo "✅ Data changes completed on remote server"
                     '''
                 }
             }
@@ -98,7 +189,14 @@ pipeline {
 
     post {
         always {
+            echo '📦 Archiving Jenkins artifacts if available'
             archiveArtifacts artifacts: '**/logs/**', allowEmptyArchive: true
+        }
+        success {
+            echo '✅ Data changes completed successfully'
+        }
+        failure {
+            echo '❌ Data changes failed'
         }
     }
 }
