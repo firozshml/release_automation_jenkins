@@ -88,16 +88,16 @@ while read LINE || [ -n "${LINE}" ]; do
   ####################################
   log "Validating table state for ${table_name}..."
   
-  TABLE_STATE_OUTPUT=$(db2 "load query table ${table_name}" 2>&1)
-  # Parse output: "Tablestate:" is on one line, actual state on next line (indented)
-  TABLE_STATE=$(print "${TABLE_STATE_OUTPUT}" | awk '/[Tt]ablestate:/{getline; print}' | awk '{print $1}')
+  TABLE_STATE=$(print "${TABLE_STATE_OUTPUT}" | awk '/[Tt]ablestate:/{getline; gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
   
   if [ -z "${TABLE_STATE}" ]; then
+    log "Full query output:"
+    log "${TABLE_STATE_OUTPUT}"
     fail "Unable to determine table state for ${table_name}. Query output: ${TABLE_STATE_OUTPUT}"
   fi
   
   if [ "${TABLE_STATE}" != "Normal" ]; then
-    fail "Table ${table_name} state is ${TABLE_STATE}. Expected: Normal. We are exiting pipeline because table state is ${TABLE_STATE}"
+    fail "Table ${table_name} state is: ${TABLE_STATE}. Expected: Normal. We are exiting pipeline because table state is ${TABLE_STATE}"
   fi
   
   log "✅ Table state is Normal - proceeding with execution of ${file}"
