@@ -57,7 +57,7 @@ while read LINE || [ -n "${LINE}" ]; do
   # Skip empty lines and comments
   [[ -z "${LINE}" || "${LINE}" = \#* ]] && continue
 
-  unset action file
+  unset action file table_name
 
   for KV in ${LINE}; do
     KEY=$(print "${KV}" | cut -d= -f1)
@@ -66,6 +66,7 @@ while read LINE || [ -n "${LINE}" ]; do
     case "${KEY}" in
       action) action="${VAL}" ;;
       file)   file="${VAL}" ;;
+      table)  table_name="${VAL}" ;;
       *)      fail "Invalid key '${KEY}' found in release file" ;;
     esac
   done
@@ -75,11 +76,30 @@ while read LINE || [ -n "${LINE}" ]; do
   ####################################
   [ "${action}" = "ddl" ] || fail "Invalid action '${action}'. Only 'ddl' allowed."
   [ -n "${file}" ] || fail "SQL filename missing in release file"
+  [ -n "${table_name}" ] || fail "Table name missing in release file for ${file}"
 
   SQL_FILE="${DDL_DIR}/${file}"
   LOG_FILE="${LOG_DIR}/${file%.sql}.log"
 
   [ -f "${SQL_FILE}" ] || fail "SQL file not found: ${SQL_FILE}"
+
+  ####################################
+  # Check table state before execution
+  ####################################
+  log "Validating table state for ${table_name}..."
+  
+  TABLE_STATE_OUTPUT=$(db2 "load query table ${table_name}" 2>&1)
+  TABLE_STATE=$(print "${TABLE_STATE_OUTPUT}" | grep -i "tablestate:" | awk '{print $NF}')
+  
+  if [ -z "${TABLE_STATE}" ]; then
+    fail "Unable to determine table state for ${table_name}. Query output: ${TABLE_STATE_OUTPUT}"
+  fi
+  
+  if [ "${TABLE_STATE}" != "Normal" ]; then
+    fail "Table ${table_name} state is ${TABLE_STATE}. Expected: Normal. We are exiting pipeline because table state is ${TABLE_STATE}"
+  fi
+  
+  log "✅ Table state is Normal - proceeding with execution of ${file}"
 
   ####################################
   # Execute SQL
