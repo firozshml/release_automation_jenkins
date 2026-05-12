@@ -1,0 +1,6 @@
+action=ddl file=ALTPOL_1.sql table=TPOL
+action=ddl file=ALTPOL_2.sql table=TPOL
+action=ddl file=ALTCPOL_1.sql table=TCPOL
+action=ddl file=ALTCPOL_2.sql table=TCPOL
+action=ddl file=ALTSPOL_1.sql table=TSPOL
+action=ddl file=ALTSPOL_2.sql table=TSPOL

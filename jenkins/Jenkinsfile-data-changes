@@ -85,7 +85,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'db-cred-ingmths',
+                        credentialsId: 'db-cred-ingm${params.REGION}s',
                         usernameVariable: 'SSH_USER',
                         passwordVariable: 'SSH_PASS'
                     )
@@ -129,7 +129,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'db-cred-ingmths',
+                        credentialsId: 'db-cred-ingm${params.REGION}s',
                         usernameVariable: 'SSH_USER',
                         passwordVariable: 'SSH_PASS'
                     )
@@ -160,7 +160,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'db-cred-ingmths',
+                        credentialsId: 'db-cred-ingm${params.REGION}s',
                         usernameVariable: 'SSH_USER',
                         passwordVariable: 'SSH_PASS'
                     )
